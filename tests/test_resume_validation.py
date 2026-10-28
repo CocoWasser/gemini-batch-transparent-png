@@ -43,7 +43,9 @@ class ResumeValidationTests(OfflineCase):
     def invalid_outputs(self):
         valid = self.target.read_bytes()
         cases = {"empty": b"", "garbage": b"not an image",
-                 "truncated PNG": valid[:len(valid) // 2]}
+                 "truncated PNG": valid[:len(valid) // 2],
+                 "truncated IEND": valid[:-1],
+                 "damaged IEND CRC": valid[:-1] + bytes([valid[-1] ^ 1])}
         for mode, fmt in (("RGB", "PNG"), ("P", "PNG"),
                           ("LA", "PNG"), ("RGB", "JPEG"), ("RGBA", "TIFF")):
             buffer = io.BytesIO()

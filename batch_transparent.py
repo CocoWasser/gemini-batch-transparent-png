@@ -328,10 +328,17 @@ def transparent_output_error(path):
     can miss truncated image data or damaged chunks.
     """
     try:
-        with Image.open(path) as image:
-            if image.format != "PNG" or image.mode != "RGBA":
-                return "Expected an RGBA PNG"
-            image.verify()
+        with open(path, "rb") as source:
+            with Image.open(source) as image:
+                if image.format != "PNG" or image.mode != "RGBA":
+                    return "Expected an RGBA PNG"
+                image.verify()
+
+            # Pillow stops verification at the IEND header, before its CRC.
+            # Require the complete terminal chunk, including length and CRC.
+            source.seek(-12, os.SEEK_END)
+            if source.read(12) != b"\x00\x00\x00\x00IEND\xaeB\x60\x82":
+                return "Missing or damaged PNG IEND chunk"
 
         # verify() does not decode pixels and leaves the image unusable.
         with Image.open(path) as image:
