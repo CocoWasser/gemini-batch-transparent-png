@@ -99,6 +99,8 @@ python3 batch_transparent.py example.tsv --out output_demo --size 2K --limit 2 -
 
 Failed or invalid images are retried up to the attempt limit. Quota errors pause the run and preserve successful results. Rerun after fixing the quota or network issue; increase `--max-attempts` to give exhausted requests another attempt. If submission is uncertain, inspect the server-side job list before using `--confirm-not-created`.
 
+On resume, final outputs must pass PNG integrity checks and fully decode as RGBA PNGs before being reused or counted as completed. Invalid outputs are moved to `_work/rejected/transparent/` with unique names. Existing valid outputs are preserved. Valid white/black pairs are reconstructed locally before any new generation is considered, even when generation attempts are exhausted. Missing or invalid sources use the existing per-stage retry limits; quarantining a final output does not reset attempts. Unfinished jobs are recovered before new submissions. Visual quality flags remain advisory and do not trigger automatic regeneration.
+
 Changing a prompt, model, or resolution requires a new output directory. The program locks output directories to prevent concurrent writers.
 
 ```text

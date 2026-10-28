@@ -320,6 +320,46 @@ def mark_attempts(state, current, work):
 
 # ==================== Image quality checks ====================
 
+def transparent_output_error(path):
+    """Return a structural error, or None for a fully decodable RGBA PNG.
+
+    Pixel-level quality flags belong to review.py and must not trigger paid
+    retries. Verify PNG integrity as well as decoding: opening only the header
+    can miss truncated image data or damaged chunks.
+    """
+    try:
+        with open(path, "rb") as source:
+            with Image.open(source) as image:
+                if image.format != "PNG" or image.mode != "RGBA":
+                    return "Expected an RGBA PNG"
+                image.verify()
+
+            # Pillow stops verification at the IEND header, before its CRC.
+            # Require the complete terminal chunk, including length and CRC.
+            source.seek(-12, os.SEEK_END)
+            if source.read(12) != b"\x00\x00\x00\x00IEND\xaeB\x60\x82":
+                return "Missing or damaged PNG IEND chunk"
+
+        # verify() does not decode pixels and leaves the image unusable.
+        with Image.open(path) as image:
+            image.load()
+    except (OSError, ValueError, SyntaxError, Image.DecompressionBombError) as exc:
+        return str(exc)
+    return None
+
+
+def reuse_transparent(base, image_id):
+    """Preserve valid outputs; quarantine invalid ones before reconstruction."""
+    path = image_path(base, "transparent", image_id)
+    if not path.exists():
+        return False
+    error = transparent_output_error(path)
+    if error is None:
+        return True
+    quarantine(base, "transparent", image_id, error)
+    return False
+
+
 def validate_background(image, stage):
     if stage not in ("white", "black"):
         raise ValueError("Background stage must be white or black")
@@ -401,11 +441,7 @@ def check_existing(records, base, state, work):
     changed = False
 
     for image_id, name, prompt in records:
-        final_file = image_path(
-            base, "transparent", image_id
-        )
-
-        if final_file.exists():
+        if reuse_transparent(base, image_id):
             continue
 
         white_file = image_path(base, "white", image_id)
@@ -525,7 +561,7 @@ def compose_ready(records, base, state, work):
             base, "transparent", image_id
         )
 
-        if result.exists():
+        if reuse_transparent(base, image_id):
             continue
 
         white = image_path(base, "white", image_id)
@@ -559,9 +595,9 @@ def select_next_batch(
     for record in records:
         image_id = record[0]
 
-        if image_path(
+        if transparent_output_error(image_path(
             base, "transparent", image_id
-        ).exists():
+        )) is None:
             continue
 
         has_white = image_path(
@@ -1209,9 +1245,11 @@ def write_report(records, base, state, max_attempts):
     remaining = []
 
     for image_id, name, prompt in records:
-        if image_path(
+        final_file = image_path(
             base, "transparent", image_id
-        ).exists():
+        )
+        final_error = transparent_output_error(final_file)
+        if final_error is None:
             completed += 1
             continue
 
@@ -1245,6 +1283,10 @@ def write_report(records, base, state, max_attempts):
         error = state["errors"].get(
             stage, {}
         ).get(image_id, "")
+        if final_file.exists() and final_error:
+            error = f"Invalid transparent output: {final_error}" + (
+                f"; {error}" if error else ""
+            )
 
         remaining.append([
             image_id,
